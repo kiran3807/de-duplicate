@@ -1,0 +1,29 @@
+{
+  "name": "de-duplicate",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "prestart" : "tsc",
+    "start": "node dist/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kiran3807/de-duplicate.git"
+  },
+  "author": "Kiran Yallabandi",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kiran3807/de-duplicate/issues"
+  },
+  "homepage": "https://github.com/kiran3807/de-duplicate#readme",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.10.4",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.2.2"
+  }
+}

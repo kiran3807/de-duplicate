@@ -2,6 +2,18 @@ import { Client } from "pg";
 import * as dotenv from "dotenv";
 import assert from "assert";
 
+type DeDuplicatedRow = {
+    title : string,
+    sources : {
+        [key: string] : number[]
+    }
+}
+
+type ValidRow = {
+    title : string,
+    ids : number[]
+}
+
 async function getDBConnection() {
 
     dotenv.config();
@@ -25,7 +37,7 @@ function checkDuplicate(base: string, duplicate: string): boolean {
         return true;
     }
 
-    let eightyPercent = base.length * (4/5);
+    const eightyPercent = base.length * (4/5);
     for(let i=0; i<base.length; i++) {
         
         if(i === duplicate.length && (i+1) >= eightyPercent) {
@@ -46,7 +58,7 @@ function checkDuplicate(base: string, duplicate: string): boolean {
 
 function deDuplicate(rows: any) {
 
-    let dedupRows: any[] = [];
+    let dedupRows: DeDuplicatedRow[] = [];
 
     while(rows.length > 0) {
         
@@ -54,12 +66,9 @@ function deDuplicate(rows: any) {
         dedupRows.push({ 
             title : baseRow.title,  
             sources : {
-                
-                [baseRow.source_type] : { 
-                    count : 1, 
-                    ids : [ baseRow.id ] 
-                }
-            } });
+                [baseRow.source_type] : [ baseRow.id ]
+            } 
+        });
 
         rows = rows.filter((row: any)=> {
 
@@ -69,14 +78,12 @@ function deDuplicate(rows: any) {
 
                 if(lastDedupRow.sources[row.source_type]) {
 
-                    lastDedupRow.sources[row.source_type].count++;
-                    lastDedupRow.sources[row.source_type].ids.push(row.id);
+                    lastDedupRow.sources[row.source_type].push(row.id);
 
                 } else {
 
-                    lastDedupRow.sources[row.source_type] = { count : 1, ids : [ row.id ]};
+                    lastDedupRow.sources[row.source_type] = [ row.id ];
                 }
-
                 return false;
             }
             return true;
@@ -87,6 +94,31 @@ function deDuplicate(rows: any) {
 
 }
 
+function filterValidSources(deDupRows: DeDuplicatedRow[]) {
+
+    let validRows: ValidRow[] = [];
+
+    validRows = deDupRows.map(row=> {
+        
+        let validRow = {} as ValidRow;
+
+        let validSource = Object.keys(row.sources).reduce((validKey: string, key: string)=> {
+
+            if(row.sources[key].length > row.sources[validKey].length) {
+                return key;
+            }
+            return validKey;
+        });
+
+        validRow["title"] = row.title;
+        validRow["ids"] = row.sources[validSource];
+
+        return validRow;
+    });
+
+    return validRows;
+}
+
 async function main() {
 
     let connection = await getDBConnection();
@@ -95,19 +127,35 @@ async function main() {
 
         connection.connect();
 
-        const getSortedTitlesQuery = "SELECT * FROM jobs_raw ORDER BY LENGTH(title) DESC;";
+        const getSortedTitlesQuery = "SELECT * FROM jobs_raw_copy ORDER BY LENGTH(title) DESC;";
+        const alterTableQuery = "ALTER TABLE jobs_raw_copy ADD COLUMN is_valid BOOLEAN;";
+        
 
         let result = await connection.query(getSortedTitlesQuery);
-        await connection.end()
         
         let deDuplicatedRows = deDuplicate(result.rows);
+        let validRows = filterValidSources(deDuplicatedRows);
+        console.log("de duplication done");
 
-        /*for(let d of deDuplicatedRows) {
-            console.log("---------");
-            console.log(d.title);
-            Object.keys(d.sources).forEach(key=>console.log(key, d.sources[key].count, d.sources[key].ids));
-            console.log("---------");
-        }*/
+        await connection.query(alterTableQuery);
+        console.log("is_valid column added to raw-jobs");
+
+        for(let validRow of validRows) {
+            
+            let idList = validRow.ids.map(id=>id.toString()).reduce((idList: string, id: string)=> {
+                
+                idList = idList + "," + id;
+                return idList;
+            });
+
+            let updateIsValidQuery = `UPDATE jobs_raw_copy SET is_valid = TRUE WHERE id IN (${idList});`;
+            await connection.query(updateIsValidQuery);
+            
+        }
+
+        await connection.end();
+
+        console.log("deduplication and updating is_valid column done");
 
     } catch(dbError: any) {
         console.log(dbError);
